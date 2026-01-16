@@ -1,235 +1,154 @@
-// import Image from "next/image";
-
-// export default function Home() {
-//   return (
-//     <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-//       <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-//         <Image
-//           className="dark:invert"
-//           src="/next.svg"
-//           alt="Next.js logo"
-//           width={100}
-//           height={20}
-//           priority
-//         />
-//         <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-//           <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-//             To get started, edit the page.tsx file.
-//           </h1>
-//           <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-//             Looking for a starting point or more instructions? Head over to{" "}
-//             <a
-//               href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-//               className="font-medium text-zinc-950 dark:text-zinc-50"
-//             >
-//               Templates
-//             </a>{" "}
-//             or the{" "}
-//             <a
-//               href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-//               className="font-medium text-zinc-950 dark:text-zinc-50"
-//             >
-//               Learning
-//             </a>{" "}
-//             center.
-//           </p>
-//         </div>
-//         <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-//           <a
-//             className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-//             href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-//             target="_blank"
-//             rel="noopener noreferrer"
-//           >
-//             <Image
-//               className="dark:invert"
-//               src="/vercel.svg"
-//               alt="Vercel logomark"
-//               width={16}
-//               height={16}
-//             />
-//             Deploy Now
-//           </a>
-//           <a
-//             className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-//             href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-//             target="_blank"
-//             rel="noopener noreferrer"
-//           >
-//             Documentation
-//           </a>
-//         </div>
-//       </main>
-//     </div>
-//   );
-// }
-
-
 "use client";
 
 import { useEffect, useRef, useState } from "react";
 import * as ort from "onnxruntime-web";
 
+// --- Type คร่าว ๆ ของ OpenCV ---
 type CvType = any;
 
 export default function Home() {
+  // =====================================================
+  // Refs: Video / Canvas / Camera
+  // =====================================================
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
 
-  const [status, setStatus] = useState<string>("ยังไม่เริ่ม");
-  const [emotion, setEmotion] = useState<string>("-");
-  const [conf, setConf] = useState<number>(0);
+  const runningRef = useRef<boolean>(false);
+  const lastUpdateRef = useRef<number>(0);
 
+  // =====================================================
+  // Refs: AI / Model
+  // =====================================================
   const cvRef = useRef<CvType | null>(null);
   const faceCascadeRef = useRef<any>(null);
   const sessionRef = useRef<ort.InferenceSession | null>(null);
   const classesRef = useRef<string[] | null>(null);
 
-  // Load OpenCV.js
-  // async function loadOpenCV() {
-  //   if (typeof window === "undefined") return;
+  // =====================================================
+  // State: UI
+  // =====================================================
+  const [status, setStatus] = useState("กำลังโหลด...");
+  const [emotion, setEmotion] = useState("-");
+  const [confidence, setConf] = useState(0);
+  const [isStreaming, setIsStreaming] = useState(false);
 
-  //   if ((window as any).cv) {
-  //     cvRef.current = (window as any).cv;
-  //     return;
-  //   }
+  // =====================================================
+  // Emotion smoothing (Method 1: Majority Vote)
+  // =====================================================
+  const emotionHistoryRef = useRef<Record<number, string[]>>({});
+  const SMOOTH_BUFFER_SIZE = 5;
 
-  //   await new Promise<void>((resolve, reject) => {
-  //     const script = document.createElement("script");
-  //     script.src = "/opencv/opencv.js";
-  //     script.async = true;
-  //     script.onload = () => {
-  //       const cv = (window as any).cv;
-  //       if (!cv) return reject(new Error("OpenCV โหลดไม่สำเร็จ"));
-  //       cv["onRuntimeInitialized"] = () => {
-  //         cvRef.current = cv;
-  //         resolve();
-  //       };
-  //     };
-  //     script.onerror = () => reject(new Error("โหลด opencv.js ไม่สำเร็จ"));
-  //     document.body.appendChild(script);
-  //   });
-  // }
-  async function loadOpenCV() {
-  if (typeof window === "undefined") return;
+  
 
-  // ready แล้ว
-  if ((window as any).cv?.Mat) {
-    cvRef.current = (window as any).cv;
-    return;
+
+  function smoothEmotion(faceId: number, newLabel: string) {
+    if (!emotionHistoryRef.current[faceId]) {
+      emotionHistoryRef.current[faceId] = [];
+    }
+
+    const buf = emotionHistoryRef.current[faceId];
+    buf.push(newLabel);
+    if (buf.length > SMOOTH_BUFFER_SIZE) buf.shift();
+
+    const count: Record<string, number> = {};
+    for (const l of buf) count[l] = (count[l] || 0) + 1;
+
+    let best = newLabel;
+    let bestCount = 0;
+    for (const [k, v] of Object.entries(count)) {
+      if (v > bestCount) {
+        best = k;
+        bestCount = v;
+      }
+    }
+    return best;
   }
 
-  await new Promise<void>((resolve, reject) => {
-    const script = document.createElement("script");
-    script.src = "/opencv/opencv.js";
-    script.async = true;
+  // =====================================================
+  // Load OpenCV
+  // =====================================================
+  async function loadOpenCV() {
+    if ((window as any).cv?.Mat) {
+      cvRef.current = (window as any).cv;
+      return;
+    }
 
-    script.onload = () => {
-      const cv = (window as any).cv;
-      if (!cv) return reject(new Error("OpenCV โหลดแล้วแต่ window.cv ไม่มีค่า"));
-
-      const waitReady = () => {
-        if ((window as any).cv?.Mat) {
-          cvRef.current = (window as any).cv;
-          resolve();
-        } else {
-          setTimeout(waitReady, 50);
-        }
+    await new Promise<void>((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "/opencv/opencv.js";
+      script.async = true;
+      script.onload = () => {
+        const cv = (window as any).cv;
+        const wait = () => {
+          if (cv?.Mat) {
+            cvRef.current = cv;
+            resolve();
+          } else setTimeout(wait, 50);
+        };
+        cv.onRuntimeInitialized ? (cv.onRuntimeInitialized = wait) : wait();
       };
+      script.onerror = () => reject(new Error("โหลด OpenCV ไม่สำเร็จ"));
+      document.body.appendChild(script);
+    });
+  }
 
-      // บาง build มี callback บาง build พร้อมทันที
-      if ("onRuntimeInitialized" in cv) {
-        cv.onRuntimeInitialized = () => waitReady();
-      } else {
-        waitReady();
-      }
-    };
-
-    script.onerror = () => reject(new Error("โหลด /opencv/opencv.js ไม่สำเร็จ"));
-    document.body.appendChild(script);
-  });
-}
-
-
-  // Load Haar cascade file into OpenCV FS
+  // =====================================================
+  // Load Haar Cascade
+  // =====================================================
   async function loadCascade() {
     const cv = cvRef.current;
-    if (!cv) throw new Error("cv ยังไม่พร้อม");
-
-    const cascadeUrl = "/opencv/haarcascade_frontalface_default.xml";
-    const res = await fetch(cascadeUrl);
-    if (!res.ok) throw new Error("โหลด cascade ไม่สำเร็จ");
+    const res = await fetch("/opencv/haarcascade_frontalface_default.xml");
     const data = new Uint8Array(await res.arrayBuffer());
 
-    // เขียนไฟล์ลง OpenCV virtual FS
-    const cascadePath = "haarcascade_frontalface_default.xml";
+    const path = "face.xml";
     try {
-      cv.FS_unlink(cascadePath);
+      cv.FS_unlink(path);
     } catch {}
-    cv.FS_createDataFile("/", cascadePath, data, true, false, false);
+    cv.FS_createDataFile("/", path, data, true, false, false);
 
-    const faceCascade = new cv.CascadeClassifier();
-    const loaded = faceCascade.load(cascadePath);
-    if (!loaded) throw new Error("cascade load() ไม่สำเร็จ");
-    faceCascadeRef.current = faceCascade;
+    const classifier = new cv.CascadeClassifier();
+    classifier.load(path);
+    faceCascadeRef.current = classifier;
   }
 
-  // 3) Load ONNX model + classes
+  // =====================================================
+  // Load ONNX Model
+  // =====================================================
   async function loadModel() {
-    const session = await ort.InferenceSession.create(
+    sessionRef.current = await ort.InferenceSession.create(
       "./models/emotion_yolo.onnx",
       { executionProviders: ["wasm"] }
     );
-    sessionRef.current = session;
 
-    const clsRes = await fetch("/models/classes.json");
-    if (!clsRes.ok) throw new Error("โหลด classes.json ไม่สำเร็จ");
-    classesRef.current = await clsRes.json();
+    const res = await fetch("/models/classes.json");
+    classesRef.current = await res.json();
   }
 
-  // 4) Start camera
-  async function startCamera() {
-    setStatus("ขอสิทธิ์กล้อง...");
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: "user" },
-      audio: false,
-    });
-    if (!videoRef.current) return;
-    videoRef.current.srcObject = stream;
-    await videoRef.current.play();
-    setStatus("กำลังทำงาน...");
-    requestAnimationFrame(loop);
-  }
-
-  // 5) Preprocess face ROI -> tensor
+  // =====================================================
+  // Preprocess + Softmax
+  // =====================================================
   function preprocessToTensor(faceCanvas: HTMLCanvasElement) {
-    // YOLO classification มักรับ input เป็น [1,3,H,W] float32 (0..1)
-    // เพื่อให้ง่าย: resize เป็น 64x64 และทำ RGB
     const size = 64;
     const tmp = document.createElement("canvas");
     tmp.width = size;
     tmp.height = size;
+
     const ctx = tmp.getContext("2d")!;
     ctx.drawImage(faceCanvas, 0, 0, size, size);
 
-    const imgData = ctx.getImageData(0, 0, size, size).data; // RGBA
+    const img = ctx.getImageData(0, 0, size, size).data;
     const float = new Float32Array(1 * 3 * size * size);
 
-    // CHW
     let idx = 0;
     for (let c = 0; c < 3; c++) {
       for (let i = 0; i < size * size; i++) {
-        const r = imgData[i * 4 + 0] / 255;
-        const g = imgData[i * 4 + 1] / 255;
-        const b = imgData[i * 4 + 2] / 255;
-        float[idx++] = c === 0 ? r : c === 1 ? g : b;
+        float[idx++] = img[i * 4 + c] / 255;
       }
     }
-
     return new ort.Tensor("float32", float, [1, 3, size, size]);
   }
 
-  // 6) Softmax
   function softmax(logits: Float32Array) {
     let max = -Infinity;
     for (const v of logits) max = Math.max(max, v);
@@ -238,163 +157,238 @@ export default function Home() {
     return exps.map((v) => v / sum);
   }
 
-  // 7) Main loop
+  // =====================================================
+  // Main Loop (Multi-face + Smoothing)
+  // =====================================================
   async function loop() {
+    if (!runningRef.current || !videoRef.current || !canvasRef.current) return;
+
+    const video = videoRef.current;
+    if (video.videoWidth === 0) {
+      requestAnimationFrame(loop);
+      return;
+    }
+
+    let src: any = null;
+    let gray: any = null;
+    let faces: any = null;
+
     try {
       const cv = cvRef.current;
-      const faceCascade = faceCascadeRef.current;
-      const session = sessionRef.current;
-      const classes = classesRef.current;
-
-      const video = videoRef.current;
       const canvas = canvasRef.current;
-      if (!cv || !faceCascade || !session || !classes || !video || !canvas) {
-        requestAnimationFrame(loop);
-        return;
+      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+
+      if (canvas.width !== video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
       }
 
-      const ctx = canvas.getContext("2d")!;
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0);
 
-      // OpenCV: read frame
-      const src = cv.imread(canvas);
-      const gray = new cv.Mat();
+      src = cv.imread(canvas);
+      gray = new cv.Mat();
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-      const faces = new cv.RectVector();
-      const msize = new cv.Size(0, 0);
-      faceCascade.detectMultiScale(gray, faces, 1.1, 3, 0, msize, msize);
+      faces = new cv.RectVector();
+      faceCascadeRef.current.detectMultiScale(gray, faces, 1.1, 3);
 
-      // วาดกรอบ + เลือกใบหน้าที่ใหญ่สุด
-      let bestRect: any = null;
-      let bestArea = 0;
+      const maxFaces = 3;
+      const faceCount = Math.min(faces.size(), maxFaces);
 
-      for (let i = 0; i < faces.size(); i++) {
+      for (let i = 0; i < faceCount; i++) {
         const r = faces.get(i);
-        const area = r.width * r.height;
-        if (area > bestArea) {
-          bestArea = area;
-          bestRect = r;
-        }
+
         ctx.strokeStyle = "lime";
         ctx.lineWidth = 2;
         ctx.strokeRect(r.x, r.y, r.width, r.height);
-      }
 
-      if (bestRect) {
-        // crop face into a small canvas
         const faceCanvas = document.createElement("canvas");
-        faceCanvas.width = bestRect.width;
-        faceCanvas.height = bestRect.height;
+        faceCanvas.width = r.width;
+        faceCanvas.height = r.height;
+
         const fctx = faceCanvas.getContext("2d")!;
         fctx.drawImage(
           canvas,
-          bestRect.x,
-          bestRect.y,
-          bestRect.width,
-          bestRect.height,
+          r.x,
+          r.y,
+          r.width,
+          r.height,
           0,
           0,
-          bestRect.width,
-          bestRect.height
+          r.width,
+          r.height
         );
 
-        // run onnx
         const input = preprocessToTensor(faceCanvas);
-
-        // ชื่อ input/output อาจต่างกันตามการ export
-        // วิธีง่าย: ใช้ key ตัวแรกของ session.inputNames
         const feeds: Record<string, ort.Tensor> = {};
-        feeds[session.inputNames[0]] = input;
+        feeds[sessionRef.current!.inputNames[0]] = input;
 
-        const out = await session.run(feeds);
-        const outName = session.outputNames[0];
-        const logits = out[outName].data as Float32Array;
+        const out = await sessionRef.current!.run(feeds);
+        const logits =
+          out[sessionRef.current!.outputNames[0]].data as Float32Array;
 
         const probs = softmax(logits);
         let maxIdx = 0;
-        for (let i = 1; i < probs.length; i++) {
-          if (probs[i] > probs[maxIdx]) maxIdx = i;
+        for (let j = 1; j < probs.length; j++) {
+          if (probs[j] > probs[maxIdx]) maxIdx = j;
         }
 
-        setEmotion(classes[maxIdx] ?? `class_${maxIdx}`);
-        setConf(probs[maxIdx] ?? 0);
+        const rawLabel = classesRef.current![maxIdx];
+        const confVal = probs[maxIdx];
+        const smoothLabel = smoothEmotion(i, rawLabel);
 
         ctx.fillStyle = "rgba(0,0,0,0.6)";
-        ctx.fillRect(bestRect.x, Math.max(0, bestRect.y - 28), 220, 28);
+        ctx.fillRect(r.x, Math.max(0, r.y - 26), 180, 26);
         ctx.fillStyle = "white";
-        ctx.font = "16px sans-serif";
+        ctx.font = "14px sans-serif";
         ctx.fillText(
-          `${classes[maxIdx]} ${(probs[maxIdx] * 100).toFixed(1)}%`,
-          bestRect.x + 6,
-          bestRect.y - 8
+          `${smoothLabel} ${(confVal * 100).toFixed(0)}%`,
+          r.x + 6,
+          r.y - 8
         );
+
+        // UI ด้านบน: ใช้คนแรก
+        if (i === 0) {
+          const now = Date.now();
+          if (now - lastUpdateRef.current > 200) {
+            setEmotion(smoothLabel);
+            setConf(confVal);
+            lastUpdateRef.current = now;
+          }
+        }
       }
-
-      // cleanup
-      src.delete();
-      gray.delete();
-      faces.delete();
-
-      requestAnimationFrame(loop);
-    } catch (e: any) {
-      setStatus(`ผิดพลาด: ${e?.message ?? e}`);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      if (src) src.delete();
+      if (gray) gray.delete();
+      if (faces) faces.delete();
     }
+
+    if (runningRef.current) requestAnimationFrame(loop);
   }
 
-  // Boot sequence
+  // =====================================================
+  // Start / Stop Camera
+  // =====================================================
+  async function startCamera() {
+    if (runningRef.current) return;
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user" },
+      audio: false,
+    });
+
+    streamRef.current = stream;
+    videoRef.current!.srcObject = stream;
+    await videoRef.current!.play();
+
+    runningRef.current = true;
+    setIsStreaming(true);
+    setStatus("กำลังตรวจจับ...");
+    requestAnimationFrame(loop);
+  }
+
+  function stopCamera() {
+    runningRef.current = false;
+    setIsStreaming(false);
+
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext("2d");
+      ctx?.clearRect(
+        0,
+        0,
+        canvasRef.current.width,
+        canvasRef.current.height
+      );
+    }
+
+    setEmotion("-");
+    setConf(0);
+    setStatus("กล้องปิดแล้ว");
+  }
+
+  // =====================================================
+  // Boot
+  // =====================================================
   useEffect(() => {
     (async () => {
       try {
-        setStatus("กำลังโหลด OpenCV...");
         await loadOpenCV();
-
-        setStatus("กำลังโหลด Haar cascade...");
         await loadCascade();
-
-        setStatus("กำลังโหลดโมเดล ONNX...");
         await loadModel();
-
-        setStatus("พร้อม เริ่มกดปุ่ม Start");
+        setStatus("พร้อมใช้งาน (กด OPEN_CAM)");
       } catch (e: any) {
-        setStatus(`เริ่มต้นไม่สำเร็จ: ${e?.message ?? e}`);
+        setStatus(`โหลดไม่สำเร็จ: ${e.message}`);
       }
     })();
   }, []);
 
+  // =====================================================
+  // UI
+  // =====================================================
   return (
-    <main className="min-h-screen p-6 space-y-4">
-      <h1 className="text-2xl font-bold">Face Emotion (OpenCV + YOLO11-CLS)</h1>
-
-      <div className="space-y-2">
-        <div className="text-sm">สถานะ: {status}</div>
-        <div className="text-sm">
-          Emotion: <b>{emotion}</b> | Conf: <b>{(conf * 100).toFixed(1)}%</b>
+    <div className="app-root">
+      <div className="app-card">
+        {/* Header */}
+        <div className="app-header">
+          <h1 className="app-title">Face Emotion AI</h1>
+          <span>{status}</span>
         </div>
-      </div>
 
-      <div className="flex gap-3">
-        <button
-          className="px-4 py-2 rounded bg-black text-white"
-          onClick={startCamera}
-        >
-          Start Camera
-        </button>
-      </div>
+        {/* Status Panel */}
+        <div className="status-panel">
+          <div className="status-box">
+            <div className="status-label">EMOTION</div>
+            <div className="status-value">{emotion}</div>
+          </div>
 
-      <div className="relative w-full max-w-3xl">
-        <video ref={videoRef} className="hidden" playsInline />
-        <canvas
-          ref={canvasRef}
-          className="w-full rounded border"
-        />
-      </div>
+          <div className="status-box">
+            <div className="status-label">CONFIDENCE</div>
+            <div className="status-value">
+              {(confidence * 100).toFixed(0)}%
+            </div>
+          </div>
+        </div>
+        {/* Controls */}
+        <div className="controls">
+          {!isStreaming ? (
+            <button
+              className="control-btn"
+              onClick={startCamera}
+            >
+              OPEN_CAM
+            </button>
+          ) : (
+            <button
+              className="control-btn stop"
+              onClick={stopCamera}
+            >
+              STOP_CAM
+            </button>
+          )}
+        </div>
+        {/* Camera */}
+        <div className="camera-wrap">
+          <canvas ref={canvasRef} className="camera-canvas" />
+          <video
+            ref={videoRef}
+            className="hidden"
+            playsInline
+            muted
+          />
+        </div>
 
-      <p className="text-sm text-gray-600">
-        หมายเหตุ: ต้องกดปุ่ม Start เพื่อขอสิทธิ์เปิดกล้อง
-      </p>
-    </main>
+        
+      </div>
+    </div>
   );
 }
