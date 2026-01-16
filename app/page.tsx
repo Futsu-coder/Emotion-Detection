@@ -3,13 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import * as ort from "onnxruntime-web";
 
-// --- Type คร่าว ๆ ของ OpenCV ---
 type CvType = any;
 
 export default function Home() {
-  // =====================================================
-  // Refs: Video / Canvas / Camera
-  // =====================================================
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -17,25 +14,17 @@ export default function Home() {
   const runningRef = useRef<boolean>(false);
   const lastUpdateRef = useRef<number>(0);
 
-  // =====================================================
-  // Refs: AI / Model
-  // =====================================================
+
   const cvRef = useRef<CvType | null>(null);
   const faceCascadeRef = useRef<any>(null);
   const sessionRef = useRef<ort.InferenceSession | null>(null);
   const classesRef = useRef<string[] | null>(null);
 
-  // =====================================================
-  // State: UI
-  // =====================================================
   const [status, setStatus] = useState("กำลังโหลด...");
   const [emotion, setEmotion] = useState("-");
   const [confidence, setConf] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
 
-  // =====================================================
-  // Emotion smoothing (Method 1: Majority Vote)
-  // =====================================================
   const emotionHistoryRef = useRef<Record<number, string[]>>({});
   const SMOOTH_BUFFER_SIZE = 5;
 
@@ -65,9 +54,6 @@ export default function Home() {
     return best;
   }
 
-  // =====================================================
-  // Load OpenCV
-  // =====================================================
   async function loadOpenCV() {
     if ((window as any).cv?.Mat) {
       cvRef.current = (window as any).cv;
@@ -93,9 +79,6 @@ export default function Home() {
     });
   }
 
-  // =====================================================
-  // Load Haar Cascade
-  // =====================================================
   async function loadCascade() {
     const cv = cvRef.current;
     const res = await fetch("/opencv/haarcascade_frontalface_default.xml");
@@ -112,9 +95,6 @@ export default function Home() {
     faceCascadeRef.current = classifier;
   }
 
-  // =====================================================
-  // Load ONNX Model
-  // =====================================================
   async function loadModel() {
     sessionRef.current = await ort.InferenceSession.create(
       "./models/emotion_yolo.onnx",
@@ -125,9 +105,6 @@ export default function Home() {
     classesRef.current = await res.json();
   }
 
-  // =====================================================
-  // Preprocess + Softmax
-  // =====================================================
   function preprocessToTensor(faceCanvas: HTMLCanvasElement) {
     const size = 64;
     const tmp = document.createElement("canvas");
@@ -157,9 +134,6 @@ export default function Home() {
     return exps.map((v) => v / sum);
   }
 
-  // =====================================================
-  // Main Loop (Multi-face + Smoothing)
-  // =====================================================
   async function loop() {
     if (!runningRef.current || !videoRef.current || !canvasRef.current) return;
 
@@ -247,7 +221,6 @@ export default function Home() {
           r.y - 8
         );
 
-        // UI ด้านบน: ใช้คนแรก
         if (i === 0) {
           const now = Date.now();
           if (now - lastUpdateRef.current > 200) {
@@ -268,9 +241,6 @@ export default function Home() {
     if (runningRef.current) requestAnimationFrame(loop);
   }
 
-  // =====================================================
-  // Start / Stop Camera
-  // =====================================================
   async function startCamera() {
     if (runningRef.current) return;
 
@@ -316,9 +286,6 @@ export default function Home() {
     setStatus("กล้องปิดแล้ว");
   }
 
-  // =====================================================
-  // Boot
-  // =====================================================
   useEffect(() => {
     (async () => {
       try {
@@ -332,19 +299,14 @@ export default function Home() {
     })();
   }, []);
 
-  // =====================================================
-  // UI
-  // =====================================================
   return (
     <div className="app-root">
       <div className="app-card">
-        {/* Header */}
         <div className="app-header">
           <h1 className="app-title">Face Emotion AI</h1>
           <span>{status}</span>
         </div>
 
-        {/* Status Panel */}
         <div className="status-panel">
           <div className="status-box">
             <div className="status-label">EMOTION</div>
@@ -358,7 +320,6 @@ export default function Home() {
             </div>
           </div>
         </div>
-        {/* Controls */}
         <div className="controls">
           {!isStreaming ? (
             <button
@@ -376,7 +337,6 @@ export default function Home() {
             </button>
           )}
         </div>
-        {/* Camera */}
         <div className="camera-wrap">
           <canvas ref={canvasRef} className="camera-canvas" />
           <video
@@ -386,8 +346,6 @@ export default function Home() {
             muted
           />
         </div>
-
-        
       </div>
     </div>
   );

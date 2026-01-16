@@ -1,8 +1,5 @@
 @import "tailwindcss";
 
-/* ===============================
-   Theme Variables
-================================ */
 :root {
   --bg-color: #f4f6fb;
   --fg-color: #111827;
@@ -20,9 +17,6 @@
   }
 }
 
-/* ===============================
-   Global
-================================ */
 html,
 body {
   width: 100%;
@@ -36,14 +30,12 @@ body {
   font-family: system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", sans-serif;
 
-  /* Light mode background */
   background-image: url("/img/cat.gif");
   background-repeat: no-repeat;
   background-position: center;
   background-size: cover;
 }
 
-/* Dark mode: ปิด background ชั่วคราว */
 @media (prefers-color-scheme: dark) {
   body {
   background-image: url("/img/cat.gif");
@@ -53,9 +45,6 @@ body {
   }
 }
 
-/* ===============================
-   Layout
-================================ */
 .app-root {
   min-height: 100vh;
   display: flex;
@@ -71,10 +60,6 @@ body {
   padding: 12px;
 }
 
-
-/* ===============================
-   Header
-================================ */
 .app-header {
   display: flex;
   align-items: center;
@@ -91,10 +76,6 @@ body {
   font-size: 1rem;
 }
 
-
-/* ===============================
-   Status Panel
-================================ */
 .status-panel {
   display: grid;
   grid-template-columns: 1fr;
@@ -102,7 +83,6 @@ body {
   margin-bottom: 16px;
 }
 
-/* Desktop */
 @media (min-width: 768px) {
   .status-panel {
     grid-template-columns: 1fr 1fr;
@@ -129,9 +109,6 @@ body {
   color: #ffffff;
 }
 
-/* ===============================
-   Camera
-================================ */
 .camera-wrap {
   display: flex;
   justify-content: center;
@@ -146,10 +123,6 @@ body {
   background: black;
 }
 
-
-/* ===============================
-   Controls
-================================ */
 .controls {
   display: flex;
   justify-content: center;
